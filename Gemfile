@@ -16,7 +16,7 @@ gem 'delayed_job_active_record'
 gem 'dynamic_form'
 gem 'edavis10-ruby-web-search'
 gem 'engtagger'
-gem 'expertiza-authlogic', github: 'expertiza/authlogic', :require => 'authlogic'
+gem 'authlogic', '~> 3.4.5'
 gem 'fastercsv'
 gem 'ffi-aspell'
 gem 'font-awesome-rails'
@@ -63,6 +63,7 @@ group :development do
   gem 'pry-nav'
   gem 'sqlite3-ruby', :require => 'sqlite3'
   gem 'selenium-webdriver'
+  gem 'quiet_assets'
 end
 
 group :test do

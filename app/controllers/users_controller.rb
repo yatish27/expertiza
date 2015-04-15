@@ -78,163 +78,164 @@ class UsersController < ApplicationController
     @letters = ('A'..'Z').to_a
   end
 
-    def show_selection
-      @user = User.find_by_name(params[:user][:name])
-      if @user != nil
-        get_role
-        if @role.parent_id == nil || @role.parent_id < (session[:user]).role_id || @user.id == (session[:user]).id
-          render :action => 'show'
-        else
-          flash[:note] = 'The specified user is not available for editing.'
-          redirect_to :action => 'list'
-        end
+  def show_selection
+    @user = User.find_by_name(params[:user][:name])
+    if @user != nil
+      get_role
+      if @role.parent_id == nil || @role.parent_id < (session[:user]).role_id || @user.id == (session[:user]).id
+        render :action => 'show'
       else
-        flash[:note] = params[:user][:name]+' does not exist.'
+        flash[:note] = 'The specified user is not available for editing.'
         redirect_to :action => 'list'
       end
+    else
+      flash[:note] = params[:user][:name]+' does not exist.'
+      redirect_to :action => 'list'
     end
+  end
 
-    def show
-      if (params[:id].nil?) || ((current_user_role? == "Student") &&  (session[:user].id != params[:id].to_i))
-        redirect_to(:action => AuthHelper::get_home_action(session[:user]), :controller => AuthHelper::get_home_controller(session[:user]))
-      else
-        @user = User.find(params[:id])
-        get_role
+  def show
+    if (params[:id].nil?) || ((current_user_role? == "Student") &&  (session[:user].id != params[:id].to_i))
+      redirect_to(:action => AuthHelper::get_home_action(session[:user]), :controller => AuthHelper::get_home_controller(session[:user]))
+    else
+      @user = User.find(params[:id])
+      get_role
+    end
+  end
+
+  def new
+    @user = User.new
+    foreign
+  end
+
+  def create
+
+    # if the user name already exists, register the user by email address
+    check = User.find_by(name: params[:user][:name])
+    if check != nil
+      params[:user][:name] = params[:user][:email]
+    end
+    puts "============"
+    puts params[:user]
+    @user = User.new(params[:user])
+    # record the person who created this new user
+    # @user.parent_id = 1 #current_user.id
+    # set the user's timezone to its parent's
+    # @user.timezonepref = User.find(@user.parent_id).timezonepref
+
+    if @user.save
+      #Instructor and Administrator users need to have a default set for their notifications
+      # the creation of an AssignmentQuestionnaire object with only the User ID field populated
+      # ensures that these users have a default value of 15% for notifications.
+      #TAs and Students do not need a default. TAs inherit the default from the instructor,
+      # Students do not have any checks for this information.
+      if @user.role.name == "Instructor" or @user.role.name == "Administrator"
+        AssignmentQuestionnaire.create(:user_id => @user.id)
       end
-    end
-
-    def new
-      @user = User.new
+      undo_link("User \"#{@user.name}\" has been created successfully. ")
+      redirect_to :action => 'list'
+    else
       foreign
+      render :action => 'new'
+    end
+  end
+
+
+  def edit
+    @user = User.find(params[:id])
+    get_role
+    foreign
+  end
+
+  def update
+    @user = User.find params[:id]
+
+    if @user.update_attributes(params[:user])
+      undo_link("User \"#{@user.name}\" has been updated successfully. ")
+      redirect_to @user
+    else
+      foreign
+      render :action => 'edit'
+    end
+  end
+
+
+  def destroy
+    begin
+      @user = User.find(params[:id])
+      AssignmentParticipant.where(user_id: @user.id).each{|participant| participant.delete}
+      TeamsUser.where(user_id: @user.id).each{|teamuser| teamuser.delete}
+      AssignmentQuestionnaire.where(user_id: @user.id).each{|aq| aq.destroy}
+      @user.destroy
+      undo_link("User \"#{@user.name}\" has been deleted successfully. ")
+    rescue
+      flash[:error] = $!
     end
 
-    def create
+    redirect_to :action => 'list'
+  end
 
-      # if the user name already exists, register the user by email address
-      check = User.find_by_name(params[:user][:name])
-      if check != nil
-        params[:user][:name] = params[:user][:email]
-      end
+  def keys
+    if (params[:id].nil?) || ((current_user_role? == "Student") &&  (session[:user].id != params[:id].to_i))
+      redirect_to(:action => AuthHelper::get_home_action(session[:user]), :controller => AuthHelper::get_home_controller(session[:user]))
+    else
+      @user = User.find(params[:id])
+      @private_key = @user.generate_keys
+    end
+  end
 
-      @user = User.new(params[:user])
-      # record the person who created this new user
-      @user.parent_id = (session[:user]).id
-      # set the user's timezone to its parent's
-      @user.timezonepref = User.find(@user.parent_id).timezonepref
+  protected
 
-      if @user.save
-        #Instructor and Administrator users need to have a default set for their notifications
-        # the creation of an AssignmentQuestionnaire object with only the User ID field populated
-        # ensures that these users have a default value of 15% for notifications.
-        #TAs and Students do not need a default. TAs inherit the default from the instructor,
-        # Students do not have any checks for this information.
-        if @user.role.name == "Instructor" or @user.role.name == "Administrator"
-          AssignmentQuestionnaire.create(:user_id => @user.id)
-        end
-        undo_link("User \"#{@user.name}\" has been created successfully. ")
-        redirect_to :action => 'list'
-        else
-          foreign
-          render :action => 'new'
-        end
-        end
+  def foreign
+    role = Role.find((session[:user]).role_id)
+    @all_roles = Role.where( ['id in (?) or id = ?',role.get_available_roles,role.id])
+  end
 
+  private
 
-        def edit
-          @user = User.find(params[:id])
-          get_role
-          foreign
-        end
+  def get_role
+    if @user && @user.role_id
+      @role = Role.find(@user.role_id)
+    elsif @user
+      @role = Role.new(:id => nil, :name => '(none)')
+    end
+  end
 
-        def update
-          @user = User.find params[:id]
+  # For filtering the users list with proper search and pagination.
+  def paginate_list(role, user_id, letter)
+    paginate_options = {"1" => 25, "2" => 50, "3" => 100}
 
-          if @user.update_attributes(params[:user])
-            undo_link("User \"#{@user.name}\" has been updated successfully. ")
-            redirect_to @user
-          else
-            foreign
-            render :action => 'edit'
-          end
-        end
+    # If the above hash does not have a value for the key,
+    # it means that we need to show all the users on the page
+    #
+    # Just a point to remember, when we use pagination, the
+    # 'users' variable should be an object, not an array
 
+    #The type of condition for the search depends on what the user has selected from the search_by dropdown
+    condition = "(role_id in (?) or id = ?) and name like ?" #default used when clicking on letters
+    search_filter = letter + '%'
+    @search_by = params[:search_by]
+    if @search_by == '1'  #search by user name
+      condition = "(role_id in (?) or id = ?) and name like ?"
+      search_filter = '%' + letter + '%'
+    elsif @search_by == '2' # search by full name
+      condition = "(role_id in (?) or id = ?) and fullname like ?"
+      search_filter = '%' + letter + '%'
+    elsif @search_by == '3' # search by email
+      condition = "(role_id in (?) or id = ?) and email like ?"
+      search_filter = '%' + letter + '%'
+    end
 
-        def destroy
-          begin
-            @user = User.find(params[:id])
-            AssignmentParticipant.where(user_id: @user.id).each{|participant| participant.delete}
-            TeamsUser.where(user_id: @user.id).each{|teamuser| teamuser.delete}
-            AssignmentQuestionnaire.where(user_id: @user.id).each{|aq| aq.destroy}
-            @user.destroy
-            undo_link("User \"#{@user.name}\" has been deleted successfully. ")
-          rescue
-            flash[:error] = $!
-          end
+    if (paginate_options["#{@per_page}"].nil?) #displaying all - no pagination
+      users = User.order('name').where( [condition, role.get_available_roles, user_id, search_filter]).paginate(:page => params[:page], :per_page => User.count)
+    else #some pagination is active - use the per_page
+      users = User.page(params[:page]).order('name').per_page(paginate_options["#{@per_page}"]).where([condition, role.get_available_roles, user_id, search_filter])
+    end
+    users
+  end
 
-          redirect_to :action => 'list'
-        end
-
-        def keys
-          if (params[:id].nil?) || ((current_user_role? == "Student") &&  (session[:user].id != params[:id].to_i))
-            redirect_to(:action => AuthHelper::get_home_action(session[:user]), :controller => AuthHelper::get_home_controller(session[:user]))
-          else
-            @user = User.find(params[:id])
-            @private_key = @user.generate_keys
-          end
-        end
-
-        protected
-
-        def foreign
-          role = Role.find((session[:user]).role_id)
-          @all_roles = Role.where( ['id in (?) or id = ?',role.get_available_roles,role.id])
-        end
-
-        private
-
-        def get_role
-          if @user && @user.role_id
-            @role = Role.find(@user.role_id)
-          elsif @user
-            @role = Role.new(:id => nil, :name => '(none)')
-          end
-        end
-
-        # For filtering the users list with proper search and pagination.
-        def paginate_list(role, user_id, letter)
-          paginate_options = {"1" => 25, "2" => 50, "3" => 100}
-
-          # If the above hash does not have a value for the key,
-          # it means that we need to show all the users on the page
-          #
-          # Just a point to remember, when we use pagination, the
-          # 'users' variable should be an object, not an array
-
-          #The type of condition for the search depends on what the user has selected from the search_by dropdown
-          condition = "(role_id in (?) or id = ?) and name like ?" #default used when clicking on letters
-          search_filter = letter + '%'
-          @search_by = params[:search_by]
-          if @search_by == '1'  #search by user name
-            condition = "(role_id in (?) or id = ?) and name like ?"
-            search_filter = '%' + letter + '%'
-          elsif @search_by == '2' # search by full name
-            condition = "(role_id in (?) or id = ?) and fullname like ?"
-            search_filter = '%' + letter + '%'
-          elsif @search_by == '3' # search by email
-            condition = "(role_id in (?) or id = ?) and email like ?"
-            search_filter = '%' + letter + '%'
-          end
-
-          if (paginate_options["#{@per_page}"].nil?) #displaying all - no pagination
-            users = User.order('name').where( [condition, role.get_available_roles, user_id, search_filter]).paginate(:page => params[:page], :per_page => User.count)
-          else #some pagination is active - use the per_page
-            users = User.page(params[:page]).order('name').per_page(paginate_options["#{@per_page}"]).where([condition, role.get_available_roles, user_id, search_filter])
-          end
-          users
-          end
-
-        # generate the undo link
-        #def undo_link
-        #  "<a href = #{url_for(:controller => :versions,:action => :revert,:id => @user.versions.last.id)}>undo</a>"
-        #end
-      end
+  # generate the undo link
+  #def undo_link
+  #  "<a href = #{url_for(:controller => :versions,:action => :revert,:id => @user.versions.last.id)}>undo</a>"
+  #end
+end

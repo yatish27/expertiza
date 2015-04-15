@@ -6,7 +6,7 @@ class ApplicationController < ActionController::Base
     force_ssl
   end
 
-  session ||= Hash.new
+  #session ||= Hash.new
 
   helper_method :current_user_session, :current_user, :current_user_role?
   protect_from_forgery with: :exception

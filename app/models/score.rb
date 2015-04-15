@@ -83,7 +83,7 @@ class Score < ActiveRecord::Base
     #  questions  - specifies the list of questions being evaluated in the assessment
 
     def self.get_total_score(params)
-      @response = params[:response].first
+      @response = params[:response]
       @questions = params[:questions]
       @q_types = params[:q_types]
 
